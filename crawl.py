@@ -1,79 +1,64 @@
-import requests
-from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 import re
-
-def get_direct_stream(url, headers):
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        # Tìm link m3u8 từ các CDN phổ biến (edgemaxcdn, bpmedialive, etc.)
-        match = re.search(r'(https?://[^\s\'"]+\.m3u8[^\s\'"]*)', res.text)
-        if match:
-            return match.group(1).replace('\\', '')
-    except:
-        pass
-    return None
+import time
 
 def main():
-    base_url = "https://sv2.hoiquan3.live"
-    target_url = f"{base_url}/trang-chu"
+    # 1. Thiết lập Chrome Options để chạy trên môi trường Server (GitHub Actions)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless") # Chạy ẩn danh
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
-    # User-Agent chuẩn theo mẫu bạn gửi
-    user_agent = "Mozilla AppleWebKit Chrome Safari"
-    headers = {
-        "User-Agent": user_agent,
-        "Referer": "https://sv2.hoiquan3.live/"
-    }
+    base_url = "https://sv2.hoiquan3.live"
+    user_agent = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36"
 
     try:
-        response = requests.get(target_url, headers=headers, timeout=20)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        print("Đang mở trang web...")
+        driver.get(f"{base_url}/trang-chu")
         
-        # Tìm tất cả các khối chứa trận đấu (thường là thẻ div hoặc a)
-        items = soup.find_all(['a', 'div'], cursor=True) or soup.find_all('a', href=True)
+        # Đợi 10 giây để JavaScript load hết nội dung và link stream
+        time.sleep(10)
+        
+        # Lấy toàn bộ mã nguồn sau khi đã thực thi JS
+        page_source = driver.page_source
+        
+        # Tìm tất cả link m3u8
+        m3u8_links = re.findall(r'(https?://[^\s\'"]+\.m3u8[^\s\'"]*)', page_source)
         
         playlist = "#EXTM3U\n"
-        count = 0
         seen_streams = set()
+        count = 0
 
-        for item in items:
-            href = item.get('href') or item.get('data-link')
-            if not href or "javascript" in href: continue
-            
-            full_link = href if href.startswith('http') else base_url + href
-            
-            # Chỉ lấy các link dẫn đến trang xem trực tiếp
-            if any(x in full_link for x in ["/live/", "/xem-truc-tiep/", "/post/"]):
-                stream_url = get_direct_stream(full_link, headers)
+        for stream in m3u8_links:
+            stream = stream.replace('\\', '')
+            if stream not in seen_streams:
+                # Tạo title giả lập theo mẫu bạn yêu cầu
+                playlist += f'#EXTINF:0 group-title="Hội quán" tvg-logo="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTEFZhuqXE1ckKN_nKQg-3kz1LTeCN3GV-8kA&s",Trận đấu {count+1}\n'
+                playlist += f'#EXTVLCOPT:http-user-agent={user_agent}\n'
+                playlist += f'#EXTVLCOPT:http-referrer={base_url}/\n'
+                playlist += f'{stream}\n'
                 
-                if stream_url and stream_url not in seen_streams:
-                    # Lấy tiêu đề và logo (nếu có)
-                    title = item.text.strip() or "Trận đấu đang diễn ra"
-                    logo = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTEFZhuqXE1ckKN_nKQg-3kz1LTeCN3GV-8kA&s"
-                    
-                    # Xây dựng nội dung theo đúng mẫu bạn yêu cầu
-                    playlist += f'#EXTINF:0 group-title="Hội quán" tvg-logo="{logo}",{title}\n'
-                    playlist += f'#EXTVLCOPT:http-user-agent={user_agent}\n'
-                    playlist += f'#EXTVLCOPT:http-referrer=https://sv2.hoiquan3.live/\n'
-                    playlist += f'{stream_url}\n'
-                    
-                    seen_streams.add(stream_url)
-                    count += 1
-                    print(f"Đã thêm: {title}")
+                seen_streams.add(stream)
+                count += 1
 
         if count > 0:
             with open("playlist.m3u", "w", encoding="utf-8") as f:
                 f.write(playlist)
-            print(f"Thành công! Đã cập nhật {count} trận đấu.")
+            print(f"Thành công: Đã lấy được {count} link bằng Selenium!")
         else:
-            # Trường hợp đặc biệt: Nếu không tìm thấy link qua thẻ a, quét toàn bộ trang chủ
-            print("Đang thử quét sâu toàn trang...")
-            direct_match = re.findall(r'(https?://[^\s\'"]+\.m3u8[^\s\'"]*)', response.text)
-            if direct_match:
-                # Xử lý tương tự nếu tìm thấy link m3u8 ngay tại trang chủ
-                pass
+            print("Thất bại: Selenium cũng không tìm thấy link m3u8 nào.")
 
     except Exception as e:
         print(f"Lỗi: {e}")
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
     main()
