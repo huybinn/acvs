@@ -1,0 +1,27 @@
+name: Auto Update
+on:
+  schedule:
+    - cron: '0 */4 * * *' # Tự chạy mỗi 4 tiếng
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install Libs
+        run: pip install requests beautifulsoup4
+      - name: Run
+        run: python crawl.py
+      - name: Push
+        run: |
+          git config --global user.name 'Bot'
+          git config --global user.email 'bot@bot.com'
+          git add playlist.m3u
+          git commit -m "Update" || exit 0
+          git push
