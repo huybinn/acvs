@@ -1,35 +1,34 @@
 name: Auto Update Playlist
 on:
   schedule:
-    - cron: '0 */2 * * *' # 2 tiếng chạy 1 lần cho chắc
-  workflow_dispatch: # Cho phép bấm nút chạy tay
-
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Ép quyền ghi cho job này
+      contents: write
     steps:
       - uses: actions/checkout@v3
-        with:
-          persist-credentials: true
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Libs
-        run: pip install requests beautifulsoup4
+      - name: Install Chrome and Selenium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          pip install selenium webdriver-manager
 
       - name: Run Crawl
         run: python crawl.py
 
-      - name: Check and Commit
+      - name: Push Changes
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global user.name 'CrawlBot'
+          git config --global user.email 'bot@noreply.github.com'
           git add playlist.m3u
-          # Chỉ commit nếu file có thay đổi nội dung
-          git commit -m "Update playlist $(date)" || echo "No changes to commit"
-          git push origin main
+          git commit -m "Update links via Selenium $(date)" || exit 0
+          git push
